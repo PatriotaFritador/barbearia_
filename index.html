@@ -901,31 +901,85 @@
         }
         
         async function registrarPagamento(barbeiro, valor, periodo) {
-            if (!confirm(`Confirmar pagamento de R$ ${valor.toFixed(2)} para ${barbeiro}?`)) return;
+            async function registrarPagamento(barbeiro, valor, periodo) {
+    if (!confirm(`Confirmar pagamento de R$ ${valor.toFixed(2)} para ${barbeiro}?`)) return;
+    
+    try {
+        const periodoSel = document.getElementById('periodo-pagamento').value;
+        
+        // 1. Registrar na tabela pagamentos
+        const { error: errorPag } = await supabase
+            .from('pagamentos')
+            .insert([{
+                funcionario: barbeiro,
+                valor: valor,
+                periodo: periodo,
+                data_pagamento: new Date().toISOString(),
+                observacao: `Pagamento ${periodo}`
+            }]);
+        
+        if (errorPag) throw errorPag;
+        
+        // 2. Buscar IDs dos atendimentos deste período
+        let queryIds = supabase
+            .from('atendimentos')
+            .select('id')
+            .eq('funcionario', barbeiro)
+            .or('pago.is.null,pago.eq.false');
+        
+        if (periodoSel === 'hoje') {
+            const hoje = new Date().toISOString().split('T')[0];
+            queryIds = queryIds.gte('created_at', `${hoje}T00:00:00`);
+        } else if (periodoSel === 'semana') {
+            const semanaAtras = new Date();
+            semanaAtras.setDate(semanaAtras.getDate() - 7);
+            queryIds = queryIds.gte('created_at', semanaAtras.toISOString());
+        } else if (periodoSel === 'mes') {
+            const mesAtras = new Date();
+            mesAtras.setMonth(mesAtras.getMonth() - 1);
+            queryIds = queryIds.gte('created_at', mesAtras.toISOString());
+        } else if (periodoSel === 'personalizado') {
+            const dataInicio = document.getElementById('data-inicio').value;
+            const dataFim = document.getElementById('data-fim').value;
+            queryIds = queryIds.gte('created_at', `${dataInicio}T00:00:00`).lte('created_at', `${dataFim}T23:59:59`);
+        }
+        
+        const { data: atendimentos, error: errorIds } = await queryIds;
+        
+        if (errorIds) {
+            console.error('Erro ao buscar IDs:', errorIds);
+        }
+        
+        // 3. MARCAR ATENDIMENTOS COMO PAGOS
+        if (atendimentos && atendimentos.length > 0) {
+            const ids = atendimentos.map(a => a.id);
             
-            try {
-                // Criar tabela de pagamentos se não existir
-                const { error } = await supabase
-                    .from('pagamentos')
-                    .insert([{
-                        funcionario: barbeiro,
-                        valor: valor,
-                        periodo: periodo,
-                        data_pagamento: new Date().toISOString(),
-                        observacao: `Pagamento ${periodo}`
-                    }]);
-                
-                if (error) throw error;
-                
-                mostrarAlerta(`✅ Pagamento de R$ ${valor.toFixed(2)} para ${barbeiro} registrado com sucesso!`, 'success');
-                
-                setTimeout(() => carregarPagamentos(), 2000);
-                
-            } catch (error) {
-                console.error('Erro:', error);
-                mostrarAlerta('Erro ao registrar pagamento: ' + error.message, 'error');
+            const { error: errorUpdate } = await supabase
+                .from('atendimentos')
+                .update({ 
+                    pago: true, 
+                    data_pagamento: new Date().toISOString() 
+                })
+                .in('id', ids);
+            
+            if (errorUpdate) {
+                console.error('Erro ao marcar como pago:', errorUpdate);
+            } else {
+                console.log(`✅ ${ids.length} atendimentos marcados como pagos`);
             }
         }
+        
+        mostrarAlerta(`✅ Pagamento de R$ ${valor.toFixed(2)} para ${barbeiro} registrado com sucesso!`, 'success');
+        
+        setTimeout(() => {
+            carregarPagamentos();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        mostrarAlerta('Erro ao registrar pagamento: ' + error.message, 'error');
+    }
+}
         
         async function carregarHistorico() {
             try {
