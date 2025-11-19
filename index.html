@@ -789,6 +789,8 @@
                 const periodo = document.getElementById('periodo-pagamento').value;
                 
                 let query = supabase.from('atendimentos').select('*');
+                query = query.or('pago.is.null,pago.eq.false');
+
                 let periodoTexto = periodo;
                 
                 if (periodo === 'hoje') {
